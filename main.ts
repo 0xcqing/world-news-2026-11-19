@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const MAX_BYTES = 1024 * 1024; // 1 MiB
+const MAX_DIMENSION = 1024; // poster is 1024×1024
 
 async function main(): Promise<void> {
   // Resolve entry.png relative to this module, never via a hard-coded path.
@@ -39,7 +40,21 @@ async function main(): Promise<void> {
     throw new Error(`${target} is ${written.length} bytes, above the 1 MiB limit`);
   }
 
-  console.log(`Wrote ${written.length} bytes to ${target}`);
+  // PNG layout: 8-byte signature, then length (4) and type (4). The first
+  // chunk must be IHDR, whose payload starts with width (4) and height (4),
+  // both big-endian. Bytes 16..19 hold the width and 20..23 the height.
+  if (written.length < 24 || written.toString('ascii', 12, 16) !== 'IHDR') {
+    throw new Error(`${target} does not contain a valid IHDR chunk`);
+  }
+  const width = written.readUInt32BE(16);
+  const height = written.readUInt32BE(20);
+  if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
+    throw new Error(
+      `${target} is ${width}x${height}, larger than the ${MAX_DIMENSION}x${MAX_DIMENSION} limit`,
+    );
+  }
+
+  console.log(`Wrote ${written.length} bytes (${width}x${height}) to ${target}`);
 }
 
 main().catch((error: unknown) => {
